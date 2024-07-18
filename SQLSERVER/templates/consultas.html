@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Resultados de Consultas</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f2f2f2;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .query {
+            margin-bottom: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background-color: #fff;
+            border-radius: 5px;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+        }
+        .query h2 {
+            margin-top: 0;
+            color: #007bff;
+        }
+        .result {
+            padding: 10px;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Resultados de Consultas</h1>
+    <div id="results">
+        {% for index, (query, time) in results.items() %}
+            <div class="query">
+                <h2>Consulta {{ index + 1 }}</h2>
+                <div class="result">
+                    <p>{{ query }}</p>
+                    <p>Tiempo de Ejecución: {{ time }} segundos</p>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</body>
+</html>
