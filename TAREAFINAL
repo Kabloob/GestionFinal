@@ -1,15 +1,17 @@
-from flask import Flask, render_template, request, send_file
+from flask import Flask, render_template, request, send_file, jsonify
 import pyodbc
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 import os
+import threading
+import time
 
 app = Flask(__name__)
 
 # Función para conectar a la base de datos SQL Server
 def connect_to_database():
     server = 'CHICHO'
-    database = 'FINAL'
+    database = 'IVECO'
     username = 'sa'
     password = '1234'
     conn = pyodbc.connect('DRIVER={SQL Server};SERVER='+server+';DATABASE='+database+';UID='+username+';PWD='+password)
@@ -175,7 +177,7 @@ def agregar_entidad():
 def listar_entidades():
     with connect_to_database() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_CATALOG = 'FINAL'")
+            cursor.execute("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_CATALOG = 'IVECO'")
             entidades = [row[0] for row in cursor.fetchall()]
     return entidades
 
@@ -356,7 +358,6 @@ def crear_tabla_auditoria():
     else:
         return render_template('crear_tabla_auditoria.html')
 
-# Generar disparadores (triggers) para cada entidad
 @app.route('/generar_disparadores', methods=['GET', 'POST'])
 def generar_disparadores():
     if request.method == 'POST':
@@ -369,6 +370,11 @@ def generar_disparadores():
                         triggers = generate_triggers(table_name)
                         for trigger_name, trigger_sql in triggers.items():
                             cursor.execute(trigger_sql)
+                            
+                            # Generar archivo SQL
+                            file_path = os.path.join("sql_scripts", f"{table_name}_{trigger_name}.sql")
+                            with open(file_path, "w") as file:
+                                file.write(trigger_sql)
                     
                     conn.commit()
             message = {"Generar Disparadores": "Disparadores generados con éxito."}
@@ -380,6 +386,7 @@ def generar_disparadores():
         tablas = listar_entidades()
         return render_template('generar_disparadores.html', tablas=tablas)
 
+# Función para generar disparadores
 def generate_triggers(table_name):
     triggers = {}
 
@@ -421,26 +428,66 @@ def generate_triggers(table_name):
 
     return triggers
 
-# Convertir las cadenas en archivos de extensión SQL
-@app.route('/generar_archivos_sql', methods=['POST'])
-def generar_archivos_sql():
-    try:
-        with connect_to_database() as conn:
-            with conn.cursor() as cursor:
-                tables = listar_entidades()
-                
-                for table_name in tables:
-                    triggers = generate_triggers(table_name)
-                    for trigger_name, trigger_sql in triggers.items():
-                        file_path = os.path.join("sql_scripts", f"{table_name}_{trigger_name}.sql")
-                        with open(file_path, "w") as file:
-                            file.write(trigger_sql)
-        
-        message = {"Generar Archivos SQL": "Archivos SQL generados con éxito."}
-    except Exception as e:
-        message = {"Error al generar archivos SQL": str(e)}
+# Función para ejecutar consultas y devolver resultados
+def execute_query(query, params=None):
+    conn = connect_to_database()
+    cursor = conn.cursor()
+    start_time = time.time()
     
-    return render_template('result.html', messages=message)
+    try:
+        if params:
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
+        
+        columns = [column[0] for column in cursor.description]
+        results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        end_time = time.time()
+        return results, end_time - start_time
+    
+    except Exception as e:
+        print(f"Error executing query: {query}, Error: {str(e)}")
+        return [], 0
+    
+    finally:
+        conn.close()
+
+@app.route('/ejecutar_consultas', methods=['GET'])
+def ejecutar_consultas():
+    queries = [
+        {"query": "SELECT * FROM cliente WHERE id_cliente = ?", "params": (1,)},
+        {"query": "SELECT * FROM bodega WHERE id_bodega = ?", "params": (1,)},
+    ]
+
+    threads = []
+    results = []
+    times = []
+
+    def worker(query):
+        result, exec_time = execute_query(query["query"], query.get("params"))
+        results.extend(result)
+        times.append(exec_time)
+
+    for query in queries:
+        thread = threading.Thread(target=worker, args=(query,))
+        threads.append(thread)
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+    # Convertir resultados a formato JSON serializable
+    json_results = []
+    for result in results:
+        json_result = {key: str(value) for key, value in result.items()}
+        json_results.append(json_result)
+
+    return jsonify({
+        "results": json_results,
+        "times": times
+    })
 
 if __name__ == '__main__':
+    if not os.path.exists("sql_scripts"):
+        os.makedirs("sql_scripts")
     app.run(debug=True)
